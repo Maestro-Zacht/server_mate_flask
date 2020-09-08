@@ -56,6 +56,8 @@ chat.start()
 
 @sockets.route('/albi_riceve')
 def albi_riceve(socket):
+    socket.send("sei connesso alla ricezione albi")
+
     chat.clients['albi'].append(socket)
 
     while not socket.closed:
@@ -64,6 +66,8 @@ def albi_riceve(socket):
 
 @sockets.route('/bot_riceve')
 def bot_riceve(socket):
+    socket.send("sei connesso alla ricezione bot")
+
     chat.clients['bot'].append(socket)
 
     while not socket.closed:
@@ -72,6 +76,8 @@ def bot_riceve(socket):
 
 @sockets.route('/bot_manda')
 def bot_manda(socket):
+    socket.send("sei connesso al manda bot")
+
     while not socket.closed:
         # Sleep to prevent *constant* context-switches.
         gevent.sleep(0.1)
@@ -83,6 +89,8 @@ def bot_manda(socket):
 
 @sockets.route('/albi_manda')
 def bot_manda(socket):
+    socket.send("sei connesso al manda albi")
+
     while not socket.closed:
         # Sleep to prevent *constant* context-switches.
         gevent.sleep(0.1)
