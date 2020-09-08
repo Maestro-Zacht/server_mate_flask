@@ -1,54 +1,48 @@
-import os
 import logging
-import redis
+import os
+
 import gevent
 from flask import Flask
 from flask_sockets import Sockets
-
-REDIS_URL = os.environ['REDIS_URL']
 
 app = Flask(__name__)
 app.debug = 'DEBUG' in os.environ
 
 sockets = Sockets(app)
-redis = redis.from_url(REDIS_URL)
 
 
 class ChatBackend:
     """Interface for registering and updating WebSocket clients."""
 
     def __init__(self):
-        self.clients = {"albi": None, "bot": None}
+        self.clients = {"albi": [], "bot": []}
 
-        self.pubsub_to_albi = redis.pubsub()
-        self.pubsub_to_albi.subscribe('albi')
+        self.queue_to_albi = gevent.queue.Queue()
 
-        self.pubsub_to_bot = redis.pubsub()
-        self.pubsub_to_bot.subscribe('bot')
+        self.queue_to_bot = gevent.queue.Queue()
 
-    def __iter_data(self, pubsub):
-        for message in pubsub.listen():
-            data = message.get('data')
-            if message['type'] == 'message':
-                yield data
+    def __iter_data(self, queue):
+        for message in queue:
+            yield message
 
-    def send(self, client, data):
+    def send(self, target, client, data):
         """Send given data to the registered client.
         Automatically discards invalid connections."""
         try:
-            self.clients[client].send(data)
+            client.send(data)
         except Exception:
-            self.clients[client] = None
-            print(f'connessione con {client} persa')
+            self.clients[target].remove(client)
 
     def run_albi(self):
         """Listens for new messages in Redis, and sends them to clients."""
-        for data in self.__iter_data(self.pubsub_to_albi):
-            gevent.spawn(self.send, 'albi', data)
+        for data in self.__iter_data(self.queue_to_albi):
+            for cl in self.clients['albi']:
+                gevent.spawn(self.send, 'albi', cl, data)
 
     def run_bot(self):
-        for data in self.__iter_data(self.pubsub_to_bot):
-            gevent.spawn(self.send, 'bot', data)
+        for data in self.__iter_data(self.queue_to_bot):
+            for cl in self.clients['bot']:
+                gevent.spawn(self.send, 'bot', data)
 
     def start(self):
         """Maintains Redis subscription in the background."""
@@ -62,7 +56,7 @@ chat.start()
 
 @sockets.route('/albi_riceve')
 def albi_riceve(socket):
-    chat.clients['albi'] = socket
+    chat.clients['albi'].append(socket)
 
     while not socket.closed:
         gevent.sleep(0.1)
@@ -70,7 +64,7 @@ def albi_riceve(socket):
 
 @sockets.route('/bot_riceve')
 def bot_riceve(socket):
-    chat.clients['bot'] = socket
+    chat.clients['bot'].append(socket)
 
     while not socket.closed:
         gevent.sleep(0.1)
@@ -84,7 +78,7 @@ def bot_manda(socket):
         message = socket.receive()
 
         if message:
-            redis.publish('albi', message)
+            chat.queue_to_albi.put(message)
 
 
 @sockets.route('/albi_manda')
@@ -95,4 +89,4 @@ def bot_manda(socket):
         message = socket.receive()
 
         if message:
-            redis.publish('bot', message)
+            chat.queue_to_bot.put(message)
